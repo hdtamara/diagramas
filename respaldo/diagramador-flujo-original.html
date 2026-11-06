@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Diagramador de flujo</title>
+<style>
+  :root{
+    --ink:#1f2a37;
+    --paper:#f6f3ea;
+    --canvas-bg:#101826;
+    --canvas-dot:#20304a;
+    --chrome-bg:#0d141f;
+    --chrome-bg-2:#141d2c;
+    --chrome-text:#dfe6ef;
+    --chrome-text-dim:#8b98ab;
+    --accent:#f2a93b;
+    --accent-dim:#7a5a22;
+    --true-col:#4caf7d;
+    --false-col:#e2664f;
+    --line:#2a3a52;
+    --mono: ui-monospace, "Cascadia Code", "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:var(--sans);
+    background:var(--chrome-bg);
+    color:var(--chrome-text);
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    overflow:hidden;
+  }
+
+  header.topbar{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:10px 16px;
+    background:var(--chrome-bg-2);
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+    flex-wrap:wrap;
+  }
+  header.topbar h1{
+    font-size:15px;
+    font-weight:600;
+    margin:0 12px 0 0;
+    letter-spacing:.2px;
+    color:var(--chrome-text);
+  }
+  .btn{
+    font-family:var(--sans);
+    font-size:13px;
+    padding:7px 13px;
+    border-radius:6px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--chrome-text);
+    cursor:pointer;
+    transition:background .12s ease, border-color .12s ease;
+  }
+  .btn:hover{background:#1b2534; border-color:#3a4d6b;}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:#1a1204; font-weight:600;}
+  .btn.primary:hover{background:#ffbb52;}
+  .btn:disabled{opacity:.4; cursor:not-allowed;}
+  .btn.danger:hover{border-color:var(--false-col); color:var(--false-col); background:transparent;}
+
+  .speed-wrap{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--chrome-text-dim);}
+  .speed-wrap input{accent-color:var(--accent);}
+
+  .hint{
+    font-size:11.5px;
+    color:var(--chrome-text-dim);
+    padding:6px 16px 10px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+  }
+
+  .main{
+    flex:1;
+    display:flex;
+    min-height:0;
+  }
+
+  aside.palette{
+    width:132px;
+    flex-shrink:0;
+    background:var(--chrome-bg-2);
+    border-right:1px solid var(--line);
+    padding:12px 10px;
+    overflow-y:auto;
+  }
+  aside.palette h2{
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--chrome-text-dim);
+    margin:0 0 10px 2px;
+    text-transform:none;
+  }
+  .pal-item{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:6px;
+    padding:10px 4px 8px;
+    margin-bottom:8px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    cursor:grab;
+    background:#0f1826;
+  }
+  .pal-item:hover{border-color:var(--accent); background:#182236;}
+  .pal-item span{font-size:11px; color:var(--chrome-text);}
+  .pal-preview{width:54px; height:34px; position:relative;}
+
+  .canvas-wrap{
+    flex:1;
+    position:relative;
+    overflow:auto;
+    background-color:var(--canvas-bg);
+    background-image:radial-gradient(var(--canvas-dot) 1.2px, transparent 1.2px);
+    background-size:22px 22px;
+  }
+  .canvas-inner{
+    position:relative;
+    width:2400px;
+    height:1500px;
+  }
+  svg.edges-layer{position:absolute; top:0; left:0; width:2400px; height:1500px; pointer-events:none;}
+  svg.edges-layer path.hit{pointer-events:stroke; stroke:transparent; stroke-width:14px; cursor:pointer;}
+  svg.edges-layer path.visible{pointer-events:none;}
+  svg.edges-layer path.selected{stroke-dasharray:6 4;}
+  .port-label{
+    position:absolute;
+    font-size:10px;
+    color:var(--chrome-text-dim);
+    pointer-events:none;
+    background:var(--canvas-bg);
+    padding:0 2px;
+  }
+
+  .node{
+    position:absolute;
+    width:170px;
+    min-height:60px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:8px 12px;
+    border:2px solid var(--ink);
+    background:var(--paper);
+    color:var(--ink);
+    border-radius:8px;
+    cursor:grab;
+    user-select:none;
+    text-align:center;
+    box-shadow:0 2px 6px rgba(0,0,0,.35);
+  }
+  .node:active{cursor:grabbing;}
+  .node.selected{outline:2px solid #5b9bf0; outline-offset:2px;}
+  .node.current{border-color:var(--accent); box-shadow:0 0 0 4px rgba(242,169,59,.35), 0 2px 6px rgba(0,0,0,.4);}
+  .node .ntype{font-size:9.5px; letter-spacing:.3px; color:#6b5c3f; margin-bottom:2px;}
+  .node .ntext{font-family:var(--mono); font-size:12.5px; word-break:break-word; max-width:100%;}
+  .node input.edit-box{
+    font-family:var(--mono); font-size:12.5px; width:100%;
+    border:1px solid #8a7c55; border-radius:4px; padding:3px 4px; text-align:center;
+  }
+
+  .node.start, .node.end{border-radius:999px; background:#eef2ff; border-color:#2f3d63;}
+  .node.end{background:#fdeceb; border-color:#7a2f27;}
+
+  .node.decision{
+    width:150px; height:150px; padding:0; background:none; border:none; box-shadow:none;
+  }
+  .decision-shape{
+    position:absolute; inset:0;
+    background:#fff3df; border:2px solid var(--ink);
+    clip-path:polygon(50% 2%, 98% 50%, 50% 98%, 2% 50%);
+  }
+  .decision-shape.current{border-color:var(--accent); box-shadow:0 0 0 4px rgba(242,169,59,.35) inset;}
+  .decision-shape.selected{outline:2px solid #5b9bf0; outline-offset:2px;}
+  .node.decision .decision-content{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:28px; text-align:center; pointer-events:none;
+  }
+  .node.decision .decision-content .ntext, .node.decision .decision-content input{pointer-events:auto;}
+
+  .node.io{background:#eaf3ec;}
+  .io-shape{
+    position:absolute; inset:0;
+    background:#eaf3ec; border:2px solid var(--ink); border-radius:6px;
+    clip-path:polygon(14% 0, 100% 0, 86% 100%, 0 100%);
+  }
+  .node.io .io-content{position:relative; z-index:1;}
+
+  .anchor{
+    position:absolute; width:14px; height:14px; border-radius:50%;
+    background:var(--chrome-bg-2); border:2px solid var(--accent);
+    cursor:crosshair; z-index:5;
+  }
+  .anchor:hover{background:var(--accent);}
+  .del-btn{
+    position:absolute; top:-9px; right:-9px; width:18px; height:18px; border-radius:50%;
+    background:#3a1414; border:1px solid var(--false-col); color:var(--false-col);
+    font-size:11px; line-height:16px; text-align:center; cursor:pointer; display:none; z-index:6;
+  }
+  .node:hover .del-btn, .node.decision:hover .del-btn{display:block;}
+
+  aside.side{
+    width:260px;
+    flex-shrink:0;
+    background:var(--chrome-bg-2);
+    border-left:1px solid var(--line);
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  .panel{display:flex; flex-direction:column; min-height:0;}
+  .panel.vars{flex:0 0 auto; max-height:38%; border-bottom:1px solid var(--line);}
+  .panel.console{flex:1;}
+  .panel h3{
+    font-size:11px; font-weight:600; color:var(--chrome-text-dim);
+    margin:0; padding:10px 12px 6px;
+  }
+  .panel .body{flex:1; overflow-y:auto; padding:0 12px 12px;}
+  table.vars-table{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px;}
+  table.vars-table td{padding:3px 4px; border-bottom:1px dashed var(--line);}
+  table.vars-table td.vname{color:var(--accent);}
+  table.vars-table td.vval{text-align:right; color:var(--chrome-text);}
+  .empty-msg{color:var(--chrome-text-dim); font-size:11.5px; font-style:italic;}
+
+  .log-line{font-family:var(--mono); font-size:11.5px; padding:2px 0; border-bottom:1px solid #1a2434; color:#c8d3e0;}
+  .log-line.err{color:var(--false-col);}
+  .log-line.ok{color:var(--true-col);}
+  .log-line.out{color:#e8ecf1;}
+
+  .input-overlay{
+    position:absolute; z-index:20;
+    background:#1c2738; border:1px solid var(--accent); border-radius:8px;
+    padding:10px 12px; box-shadow:0 6px 18px rgba(0,0,0,.5);
+    display:flex; flex-direction:column; gap:6px; width:190px;
+  }
+  .input-overlay label{font-size:11px; color:var(--chrome-text-dim);}
+  .input-overlay input{
+    font-family:var(--mono); font-size:13px; padding:5px 7px; border-radius:5px;
+    border:1px solid var(--line); background:#0f1826; color:var(--chrome-text);
+  }
+  .input-overlay button{align-self:flex-end;}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Diagramador de flujo</h1>
+  <button class="btn primary" id="btnStep">Paso a paso</button>
+  <button class="btn" id="btnRun">Ejecutar</button>
+  <button class="btn" id="btnStop" disabled>Detener</button>
+  <button class="btn" id="btnReset">Reiniciar</button>
+  <button class="btn danger" id="btnClear">Vaciar lienzo</button>
+  <div class="speed-wrap">
+    <label for="speed">Velocidad</label>
+    <input type="range" id="speed" min="150" max="1500" value="700" step="50">
+  </div>
+</header>
+<div class="hint">Arrastra un bloque al lienzo · arrastra desde el punto naranja para conectar dos bloques · doble clic en un bloque para editar su texto · selecciona y presiona Suprimir para borrar.</div>
+
+<div class="main">
+  <aside class="palette">
+    <h2>Bloques</h2>
+    <div class="pal-item" draggable="true" data-type="start">
+      <div class="pal-preview"><div style="position:absolute;inset:6px;border-radius:999px;background:#eef2ff;border:2px solid var(--ink);"></div></div>
+      <span>Inicio</span>
+    </div>
+    <div class="pal-item" draggable="true" data-type="process">
+      <div class="pal-preview"><div style="position:absolute;inset:4px;border-radius:5px;background:var(--paper);border:2px solid var(--ink);"></div></div>
+      <span>Proceso</span>
+    </div>
+    <div class="pal-item" draggable="true" data-type="input">
+      <div class="pal-preview"><div style="position:absolute;inset:4px;border-radius:4px;background:#eaf3ec;border:2px solid var(--ink);clip-path:polygon(14% 0,100% 0,86% 100%,0 100%);"></div></div>
+      <span>Entrada</span>
+    </div>
+    <div class="pal-item" draggable="true" data-type="output">
+      <div class="pal-preview"><div style="position:absolute;inset:4px;border-radius:4px;background:#eaf3ec;border:2px solid var(--ink);clip-path:polygon(14% 0,100% 0,86% 100%,0 100%);"></div></div>
+      <span>Salida</span>
+    </div>
+    <div class="pal-item" draggable="true" data-type="decision">
+      <div class="pal-preview"><div style="position:absolute;inset:2px;background:#fff3df;border:2px solid var(--ink);clip-path:polygon(50% 2%,98% 50%,50% 98%,2% 50%);"></div></div>
+      <span>Decisión</span>
+    </div>
+    <div class="pal-item" draggable="true" data-type="end">
+      <div class="pal-preview"><div style="position:absolute;inset:6px;border-radius:999px;background:#fdeceb;border:2px solid var(--ink);"></div></div>
+      <span>Fin</span>
+    </div>
+  </aside>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="canvas-inner" id="canvasInner">
+      <svg class="edges-layer" id="edgesLayer">
+        <defs>
+          <marker id="arrow-def" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#8fa2bd"/></marker>
+          <marker id="arrow-true" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4caf7d"/></marker>
+          <marker id="arrow-false" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#e2664f"/></marker>
+        </defs>
+      </svg>
+      <div id="nodesLayer"></div>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="panel vars">
+      <h3>Variables</h3>
+      <div class="body" id="varsBody"><div class="empty-msg">Sin variables todavía</div></div>
+    </div>
+    <div class="panel console">
+      <h3>Consola</h3>
+      <div class="body" id="consoleBody"><div class="empty-msg">La salida de la ejecución aparecerá aquí</div></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- estado ----------
+  let nodes = [];      // {id, type, x, y, text}
+  let edges = [];      // {id, from, to, port}  port: 'out' | 'true' | 'false'
+  let nextId = 1;
+  let selectedNodeId = null;
+  let selectedEdgeId = null;
+
+  const SIZE = {
+    start:{w:170,h:60}, end:{w:170,h:60}, process:{w:170,h:60},
+    input:{w:170,h:60}, output:{w:170,h:60}, decision:{w:150,h:150}
+  };
+  const LABEL = {start:'Inicio', end:'Fin', process:'Proceso', input:'Entrada', output:'Salida', decision:'Decisión'};
+  const DEFAULT_TEXT = {start:'', end:'', process:'x = 0', input:'n', output:'x', decision:'x > 0'};
+
+  const nodesLayer = document.getElementById('nodesLayer');
+  const edgesLayer = document.getElementById('edgesLayer');
+  const canvasWrap = document.getElementById('canvasWrap');
+  const canvasInner = document.getElementById('canvasInner');
+
+  function getNode(id){ return nodes.find(n=>n.id===id); }
+  function anchorPoint(node, port){
+    if(node.type==='decision'){
+      if(port==='true') return {x:node.x+SIZE.decision.w/2, y:node.y+SIZE.decision.h-4};
+      if(port==='false') return {x:node.x+SIZE.decision.w-4, y:node.y+SIZE.decision.h/2};
+      return {x:node.x+SIZE.decision.w/2, y:node.y}; // top, for incoming target
+    }
+    const s = SIZE[node.type];
+    if(port==='out') return {x:node.x+s.w/2, y:node.y+s.h};
+    return {x:node.x+s.w/2, y:node.y}; // top target point
+  }
+
+  // ---------- crear / borrar nodos ----------
+  function addNode(type, x, y){
+    const s = SIZE[type];
+    const node = {id:'n'+(nextId++), type, x:Math.max(0,x), y:Math.max(0,y), text:DEFAULT_TEXT[type]};
+    nodes.push(node);
+    renderAll();
+    return node;
+  }
+  function deleteNode(id){
+    nodes = nodes.filter(n=>n.id!==id);
+    edges = edges.filter(e=>e.from!==id && e.to!==id);
+    if(selectedNodeId===id) selectedNodeId=null;
+    renderAll();
+  }
+  function deleteEdge(id){
+    edges = edges.filter(e=>e.id!==id);
+    if(selectedEdgeId===id) selectedEdgeId=null;
+    renderAll();
+  }
+
+  // ---------- render ----------
+  function renderAll(){ renderNodes(); renderEdges(); renderVars(); }
+
+  function renderNodes(){
+    nodesLayer.innerHTML = '';
+    nodes.forEach(node=>{
+      const el = document.createElement('div');
+      el.dataset.id = node.id;
+      el.style.left = node.x+'px';
+      el.style.top = node.y+'px';
+
+      if(node.type==='decision'){
+        el.className = 'node decision' + (selectedNodeId===node.id?' sel-outer':'');
+        el.style.width = SIZE.decision.w+'px';
+        el.style.height = SIZE.decision.h+'px';
+        el.innerHTML =
+          '<div class="decision-shape'+(execState.currentNodeId===node.id?' current':'')+(selectedNodeId===node.id?' selected':'')+'"></div>'+
+          '<div class="decision-content">'+
+            '<div class="ntype">Decisión</div>'+
+            textOrEdit(node)+
+          '</div>'+
+          '<div class="anchor" data-port="true" style="left:'+(SIZE.decision.w/2-7)+'px; top:'+(SIZE.decision.h-8)+'px;" title="Sí"></div>'+
+          '<div class="anchor" data-port="false" style="left:'+(SIZE.decision.w-8)+'px; top:'+(SIZE.decision.h/2-7)+'px;" title="No"></div>'+
+          '<div class="port-label" style="left:'+(SIZE.decision.w/2-8)+'px; top:'+(SIZE.decision.h+2)+'px;">Sí</div>'+
+          '<div class="port-label" style="left:'+(SIZE.decision.w+4)+'px; top:'+(SIZE.decision.h/2-8)+'px;">No</div>'+
+          '<div class="del-btn" title="Eliminar">×</div>';
+      } else if(node.type==='input' || node.type==='output'){
+        el.className = 'node io'+(selectedNodeId===node.id?' selected':'')+(execState.currentNodeId===node.id?' current':'');
+        el.style.width = SIZE[node.type].w+'px';
+        el.style.height = SIZE[node.type].h+'px';
+        el.innerHTML =
+          '<div class="io-shape"></div>'+
+          '<div class="io-content">'+
+            '<div class="ntype">'+LABEL[node.type]+'</div>'+
+            textOrEdit(node)+
+          '</div>'+
+          (node.type!=='end' ? '<div class="anchor" data-port="out" style="left:'+(SIZE[node.type].w/2-7)+'px; top:'+(SIZE[node.type].h-7)+'px;"></div>' : '')+
+          '<div class="del-btn" title="Eliminar">×</div>';
+      } else {
+        el.className = 'node '+node.type+(selectedNodeId===node.id?' selected':'')+(execState.currentNodeId===node.id?' current':'');
+        el.style.width = SIZE[node.type].w+'px';
+        el.style.height = SIZE[node.type].h+'px';
+        const showType = node.type==='process';
+        el.innerHTML =
+          (showType?'<div class="ntype">Proceso</div>':'')+
+          (node.type==='start'?'<div class="ntext">Inicio</div>': node.type==='end' ? '<div class="ntext">Fin</div>' : textOrEdit(node))+
+          (node.type!=='end' ? '<div class="anchor" data-port="out" style="left:'+(SIZE[node.type].w/2-7)+'px; top:'+(SIZE[node.type].h-7)+'px;"></div>' : '')+
+          '<div class="del-btn" title="Eliminar">×</div>';
+      }
+      nodesLayer.appendChild(el);
+    });
+  }
+
+  function textOrEdit(node){
+    return '<div class="ntext" data-edit="1">'+escapeHtml(node.text)+'</div>';
+  }
+  function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  function renderEdges(){
+    // limpiar (conservar defs)
+    Array.from(edgesLayer.querySelectorAll('path, text.edge-label')).forEach(n=>n.remove());
+    edges.forEach(edge=>{
+      const from = getNode(edge.from), to = getNode(edge.to);
+      if(!from||!to) return;
+      const p1 = anchorPoint(from, edge.port);
+      const p2 = anchorPoint(to, 'in');
+      const midY = (p1.y+p2.y)/2;
+      const d = 'M '+p1.x+' '+p1.y+' C '+p1.x+' '+midY+', '+p2.x+' '+midY+', '+p2.x+' '+p2.y;
+      const color = edge.port==='true' ? '#4caf7d' : edge.port==='false' ? '#e2664f' : '#8fa2bd';
+      const marker = edge.port==='true' ? 'url(#arrow-true)' : edge.port==='false' ? 'url(#arrow-false)' : 'url(#arrow-def)';
+
+      const hit = document.createElementNS('http://www.w3.org/2000/svg','path');
+      hit.setAttribute('d', d); hit.setAttribute('class','hit'); hit.dataset.id = edge.id;
+      hit.style.pointerEvents = 'stroke';
+      hit.addEventListener('mousedown', (e)=>{ e.stopPropagation(); selectedNodeId=null; selectedEdgeId=edge.id; renderNodes(); renderEdges(); });
+      edgesLayer.appendChild(hit);
+
+      const vis = document.createElementNS('http://www.w3.org/2000/svg','path');
+      vis.setAttribute('d', d);
+      vis.setAttribute('fill','none');
+      vis.setAttribute('stroke', color);
+      vis.setAttribute('stroke-width', selectedEdgeId===edge.id?3:2);
+      if(selectedEdgeId===edge.id) vis.setAttribute('stroke-dasharray','6 4');
+      vis.setAttribute('marker-end', marker);
+      edgesLayer.appendChild(vis);
+    });
+  }
+
+  function renderVars(){
+    const body = document.getElementById('varsBody');
+    const keys = Object.keys(execState.vars);
+    if(keys.length===0){ body.innerHTML = '<div class="empty-msg">Sin variables todavía</div>'; return; }
+    let html = '<table class="vars-table">';
+    keys.forEach(k=>{ html += '<tr><td class="vname">'+escapeHtml(k)+'</td><td class="vval">'+escapeHtml(String(execState.vars[k]))+'</td></tr>'; });
+    html += '</table>';
+    body.innerHTML = html;
+  }
+
+  function logMsg(text, cls){
+    const body = document.getElementById('consoleBody');
+    if(body.querySelector('.empty-msg')) body.innerHTML='';
+    const line = document.createElement('div');
+    line.className = 'log-line'+(cls?' '+cls:'');
+    line.textContent = text;
+    body.appendChild(line);
+    body.scrollTop = body.scrollHeight;
+  }
+  function clearConsole(){ document.getElementById('consoleBody').innerHTML = '<div class="empty-msg">La salida de la ejecución aparecerá aquí</div>'; }
+
+  // ---------- arrastrar desde la paleta ----------
+  document.querySelectorAll('.pal-item').forEach(item=>{
+    item.addEventListener('dragstart', e=>{
+      e.dataTransfer.setData('text/node-type', item.dataset.type);
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+  });
+  canvasWrap.addEventListener('dragover', e=> e.preventDefault());
+  canvasWrap.addEventListener('drop', e=>{
+    e.preventDefault();
+    const type = e.dataTransfer.getData('text/node-type');
+    if(!type) return;
+    const rect = canvasInner.getBoundingClientRect();
+    const s = SIZE[type];
+    const x = e.clientX - rect.left - s.w/2;
+    const y = e.clientY - rect.top - s.h/2;
+    addNode(type, x, y);
+  });
+
+  // ---------- interacción con nodos (mover / seleccionar / editar / conectar / borrar) ----------
+  let drag = null;      // {id, offX, offY, moved}
+  let connectDrag = null; // {fromId, fromPort, x1, y1}
+
+  nodesLayer.addEventListener('mousedown', e=>{
+    const anchor = e.target.closest('.anchor');
+    const delBtn = e.target.closest('.del-btn');
+    const nodeEl = e.target.closest('[data-id]');
+    if(!nodeEl) return;
+    const id = nodeEl.dataset.id;
+
+    if(delBtn){ e.stopPropagation(); deleteNode(id); return; }
+
+    if(anchor){
+      e.stopPropagation();
+      const node = getNode(id);
+      const port = anchor.dataset.port;
+      const p = anchorPoint(node, port);
+      connectDrag = {fromId:id, fromPort:port, x1:p.x, y1:p.y};
+      return;
+    }
+
+    if(e.target.dataset && e.target.dataset.edit){
+      // dblclick lo maneja otro listener; aquí solo preparar drag normal
+    }
+    const rect = canvasInner.getBoundingClientRect();
+    const node = getNode(id);
+    drag = {id, offX: e.clientX-rect.left-node.x, offY: e.clientY-rect.top-node.y, moved:false};
+  });
+
+  document.addEventListener('mousemove', e=>{
+    const rect = canvasInner.getBoundingClientRect();
+    if(drag){
+      const node = getNode(drag.id);
+      const nx = e.clientX - rect.left - drag.offX;
+      const ny = e.clientY - rect.top - drag.offY;
+      if(Math.abs(nx-node.x)>2 || Math.abs(ny-node.y)>2) drag.moved = true;
+      node.x = Math.max(0,nx); node.y = Math.max(0,ny);
+      renderNodePosition(node);
+      renderEdges();
+    }
+    if(connectDrag){
+      let tmp = document.getElementById('tmp-edge');
+      const x2 = e.clientX-rect.left, y2 = e.clientY-rect.top;
+      if(!tmp){
+        tmp = document.createElementNS('http://www.w3.org/2000/svg','path');
+        tmp.id='tmp-edge'; tmp.setAttribute('stroke','#f2a93b'); tmp.setAttribute('stroke-width','2');
+        tmp.setAttribute('fill','none'); tmp.setAttribute('stroke-dasharray','5 4');
+        edgesLayer.appendChild(tmp);
+      }
+      tmp.setAttribute('d','M '+connectDrag.x1+' '+connectDrag.y1+' L '+x2+' '+y2);
+    }
+  });
+
+  document.addEventListener('mouseup', e=>{
+    if(drag){
+      if(!drag.moved){
+        selectedNodeId = drag.id; selectedEdgeId = null; renderNodes(); renderEdges();
+      }
+      drag = null;
+    }
+    if(connectDrag){
+      const tmp = document.getElementById('tmp-edge'); if(tmp) tmp.remove();
+      const targetEl = document.elementFromPoint(e.clientX, e.clientY);
+      const targetNodeEl = targetEl ? targetEl.closest('[data-id]') : null;
+      if(targetNodeEl && targetNodeEl.dataset.id !== connectDrag.fromId){
+        edges = edges.filter(ed=> !(ed.from===connectDrag.fromId && ed.port===connectDrag.fromPort));
+        edges.push({id:'e'+(nextId++), from:connectDrag.fromId, to:targetNodeEl.dataset.id, port:connectDrag.fromPort});
+        renderEdges();
+      }
+      connectDrag = null;
+    }
+  });
+
+  function renderNodePosition(node){
+    const el = nodesLayer.querySelector('[data-id="'+node.id+'"]');
+    if(el){ el.style.left=node.x+'px'; el.style.top=node.y+'px'; }
+  }
+
+  // doble clic para editar texto
+  nodesLayer.addEventListener('dblclick', e=>{
+    const editable = e.target.closest('[data-edit]');
+    const nodeEl = e.target.closest('[data-id]');
+    if(!editable || !nodeEl) return;
+    const node = getNode(nodeEl.dataset.id);
+    const input = document.createElement('input');
+    input.className = 'edit-box'; input.value = node.text;
+    editable.replaceWith(input);
+    input.focus(); input.select();
+    function commit(){
+      node.text = input.value.trim();
+      renderNodes(); renderEdges();
+    }
+    input.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ commit(); } if(ev.key==='Escape'){ renderNodes(); } });
+    input.addEventListener('blur', commit);
+  });
+
+  // clic en lienzo vacío deselecciona
+  canvasWrap.addEventListener('mousedown', e=>{
+    if(e.target===canvasWrap || e.target===canvasInner){
+      selectedNodeId=null; selectedEdgeId=null; renderNodes(); renderEdges();
+    }
+  });
+
+  // suprimir con teclado
+  document.addEventListener('keydown', e=>{
+    if((e.key==='Delete' || e.key==='Backspace') && document.activeElement.tagName!=='INPUT'){
+      if(selectedNodeId){ deleteNode(selectedNodeId); }
+      else if(selectedEdgeId){ deleteEdge(selectedEdgeId); }
+    }
+  });
+
+  // ---------- ejecución ----------
+  const execState = { started:false, running:false, currentNodeId:null, vars:{}, waitingInput:null, stepCount:0 };
+  let runTimer = null;
+
+  function evalExpr(expr, vars){
+    const names = Object.keys(vars);
+    const values = names.map(n=>vars[n]);
+    const fn = new Function(...names, 'return ('+expr+');');
+    return fn(...values);
+  }
+
+  function resetExecution(){
+    execState.started=false; execState.running=false; execState.currentNodeId=null;
+    execState.vars={}; execState.waitingInput=null; execState.stepCount=0;
+    stopRun();
+    clearConsole();
+    removeInputOverlay();
+    renderAll();
+  }
+
+  function stopRun(){
+    if(runTimer){ clearInterval(runTimer); runTimer=null; }
+    execState.running=false;
+    document.getElementById('btnRun').disabled=false;
+    document.getElementById('btnStop').disabled=true;
+  }
+
+  function removeInputOverlay(){
+    const ov = document.getElementById('input-overlay');
+    if(ov) ov.remove();
+  }
+
+  function showInputOverlay(node){
+    removeInputOverlay();
+    const ov = document.createElement('div');
+    ov.className='input-overlay'; ov.id='input-overlay';
+    ov.style.left = (node.x + SIZE[node.type].w + 12)+'px';
+    ov.style.top = node.y+'px';
+    ov.innerHTML = '<label>Valor para "'+escapeHtml(node.text)+'"</label><input type="text" id="input-overlay-field" autofocus><button class="btn primary" id="input-overlay-btn">Aceptar</button>';
+    canvasInner.appendChild(ov);
+    const field = ov.querySelector('#input-overlay-field');
+    field.focus();
+    function submit(){
+      const raw = field.value;
+      const num = Number(raw);
+      const val = (raw.trim()!=='' && !isNaN(num)) ? num : raw;
+      execState.vars[node.text.trim()] = val;
+      logMsg('Entrada · '+node.text.trim()+' = '+val, 'ok');
+      execState.waitingInput = null;
+      removeInputOverlay();
+      renderVars();
+      advanceFrom(node, 'out');
+      if(execState.running && execState.currentNodeId===null) stopRun();
+    }
+    ov.querySelector('#input-overlay-btn').addEventListener('click', submit);
+    field.addEventListener('keydown', ev=>{ if(ev.key==='Enter') submit(); });
+  }
+
+  function executeNode(node){
+    switch(node.type){
+      case 'start': return 'out';
+      case 'end': return null;
+      case 'process': {
+        const m = node.text.match(/^\s*([A-Za-z_]\w*)\s*=(?!=)\s*(.+)$/);
+        if(!m){ logMsg('Error en proceso: "'+node.text+'" no tiene forma "variable = expresión"', 'err'); return 'out'; }
+        try{
+          const val = evalExpr(m[2], execState.vars);
+          execState.vars[m[1]] = val;
+          renderVars();
+        }catch(err){ logMsg('Error al evaluar "'+node.text+'": '+err.message, 'err'); }
+        return 'out';
+      }
+      case 'input': {
+        const varName = node.text.trim();
+        if(!/^[A-Za-z_]\w*$/.test(varName)){ logMsg('Error de entrada: "'+node.text+'" no es un nombre de variable válido', 'err'); return 'out'; }
+        execState.waitingInput = node.id;
+        showInputOverlay(node);
+        return 'pending';
+      }
+      case 'output': {
+        try{
+          const val = evalExpr(node.text, execState.vars);
+          logMsg('Salida · '+val, 'out');
+        }catch(err){ logMsg('Error al evaluar "'+node.text+'": '+err.message, 'err'); }
+        return 'out';
+      }
+      case 'decision': {
+        try{
+          const val = evalExpr(node.text, execState.vars);
+          return val ? 'true' : 'false';
+        }catch(err){ logMsg('Error al evaluar "'+node.text+'": '+err.message, 'err'); return 'false'; }
+      }
+    }
+  }
+
+  function advanceFrom(node, port){
+    if(node.type==='end'){ execState.currentNodeId=null; logMsg('Fin del programa','ok'); renderAll(); return; }
+    const edge = edges.find(e=>e.from===node.id && e.port===port);
+    if(!edge){ logMsg('El bloque "'+LABEL[node.type]+'" no tiene una conexión de salida', 'err'); execState.currentNodeId=null; renderAll(); return; }
+    execState.currentNodeId = edge.to;
+    renderAll();
+  }
+
+  function step(){
+    if(execState.waitingInput) return;
+    if(!execState.started){
+      const starts = nodes.filter(n=>n.type==='start');
+      if(starts.length!==1){ logMsg('Se necesita exactamente un bloque "Inicio" para ejecutar', 'err'); return; }
+      execState.started = true;
+      execState.currentNodeId = starts[0].id;
+      logMsg('Ejecución iniciada', 'ok');
+      renderAll();
+      return;
+    }
+    if(execState.currentNodeId===null){ logMsg('No hay nada más que ejecutar (usa Reiniciar)', 'err'); return; }
+    execState.stepCount++;
+    if(execState.stepCount>4000){ logMsg('Se detuvo: parece un bucle sin fin (más de 4000 pasos)', 'err'); execState.currentNodeId=null; stopRun(); renderAll(); return; }
+    const node = getNode(execState.currentNodeId);
+    if(!node){ execState.currentNodeId=null; return; }
+    const port = executeNode(node);
+    if(port==='pending') return;
+    advanceFrom(node, port);
+  }
+
+  document.getElementById('btnStep').addEventListener('click', ()=>{ if(!execState.running) step(); });
+  document.getElementById('btnRun').addEventListener('click', ()=>{
+    if(execState.running) return;
+    execState.running = true;
+    document.getElementById('btnRun').disabled = true;
+    document.getElementById('btnStop').disabled = false;
+    const speed = Number(document.getElementById('speed').value);
+    runTimer = setInterval(()=>{
+      if(execState.waitingInput) return;
+      if(execState.currentNodeId===null && execState.started){ stopRun(); return; }
+      step();
+    }, speed);
+  });
+  document.getElementById('btnStop').addEventListener('click', stopRun);
+  document.getElementById('btnReset').addEventListener('click', resetExecution);
+  document.getElementById('btnClear').addEventListener('click', ()=>{
+    if(!confirm('¿Vaciar todo el lienzo? Esto borra los bloques y conexiones.')) return;
+    nodes=[]; edges=[]; resetExecution();
+  });
+
+  // arranque
+  renderAll();
+})();
+</script>
+</body>
+</html>

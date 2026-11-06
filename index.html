@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Herramienta para armar, modificar y ejecutar diagramas de flujo paso a paso.">
+<meta name="color-scheme" content="dark light">
+<title>Diagramas de flujo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230f1724'/><rect x='7' y='4' width='18' height='7' rx='3.5' fill='%23dff0e4'/><path d='M16 11v4M16 21v4' stroke='%23f2a93b' stroke-width='2'/><path d='M16 15l6 3-6 3-6-3z' fill='%23fdf0d8'/></svg>">
+<script>
+  // antes de pintar: si hay un tema guardado, se aplica ya para que no parpadee
+  try {
+    var pref = JSON.parse(localStorage.getItem('diagramador.preferencias.v1') || 'null');
+    if (pref && (pref.theme === 'light' || pref.theme === 'dark')) {
+      document.documentElement.dataset.theme = pref.theme;
+    }
+  } catch (e) { /* modo privado: se queda con el tema oscuro */ }
+</script>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+      <rect class="bm-top" x="3" y="1" width="12" height="4.5" rx="2.25"/>
+      <path class="bm-link" d="M9 5.5v2.2M9 12.6v2.2" stroke-width="1.6"/>
+      <path class="bm-dia" d="M9 7.7l4 2.4-4 2.5-4-2.5z"/>
+    </svg>
+    Diagramas de flujo
+  </div>
+
+  <input id="title" class="title-input" type="text" placeholder="Nombre del diagrama" aria-label="Nombre del diagrama">
+
+  <div class="group">
+    <button class="btn" id="btnNew" type="button" title="Empezar un diagrama vacío">Nuevo</button>
+    <button class="btn" id="btnSave" type="button" title="Guardar en este navegador (Ctrl+S)">Guardar</button>
+    <div class="menu-wrap">
+      <button class="btn" id="btnLibrary" type="button" title="Los diagramas guardados en este navegador">
+        Mis diagramas <span class="caret">▾</span>
+      </button>
+      <div class="menu menu-wide" id="menuLibrary" hidden></div>
+    </div>
+    <div class="menu-wrap">
+      <button class="btn" id="btnExamples" type="button" title="Cargar un diagrama de ejemplo">
+        Ejemplos <span class="caret">▾</span>
+      </button>
+      <div class="menu" id="menuExamples" hidden></div>
+    </div>
+    <div class="menu-wrap">
+      <button class="btn" id="btnFile" type="button" title="Exportar, abrir o compartir">
+        Archivo <span class="caret">▾</span>
+      </button>
+      <div class="menu" id="menuFile" hidden></div>
+    </div>
+  </div>
+
+  <div class="group">
+    <button class="btn primary" id="btnStep" type="button" title="Ejecutar un solo bloque (F9)">
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M2 1.5 L8 6 L2 10.5 Z" fill="currentColor"/>
+        <rect x="9" y="1.5" width="2" height="9" rx="1" fill="currentColor"/>
+      </svg>
+      Paso a paso
+    </button>
+    <button class="btn" id="btnRun" type="button" title="Ejecutar el diagrama entero (F8)"></button>
+    <button class="btn" id="btnReset" type="button" title="Volver al principio y limpiar variables">Reiniciar</button>
+    <div class="speed">
+      <label for="speed">Velocidad</label>
+      <input type="range" id="speed" min="0" max="1500" step="50" value="600">
+      <span class="speed-label" id="speedLabel">Normal</span>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="group">
+    <button class="btn icon ghost" id="btnTheme" type="button" title="Cambiar a modo claro" aria-label="Cambiar a modo claro"></button>
+    <button class="btn ghost" id="btnPython" type="button" title="Ver el codigo Python del diagrama" aria-pressed="false">Python</button>
+    <button class="btn icon ghost" id="btnHelp" type="button" title="Ayuda (?)" aria-label="Ayuda">
+      <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M6.2 6.1c0-1 .8-1.7 1.8-1.7s1.8.7 1.8 1.6c0 1.3-1.7 1.3-1.7 2.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        <circle cx="8.1" cy="11.4" r=".95" fill="currentColor"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="palette" id="palette">
+    <h2>Bloques</h2>
+  </aside>
+
+  <main class="stage">
+    <div class="canvas-wrap" id="canvasWrap">
+      <div class="canvas-inner" id="canvasInner">
+        <div class="zoom-layer" id="zoomLayer">
+          <svg class="edges" id="edges" width="2400" height="1600" viewBox="0 0 2400 1600">
+            <defs>
+              <marker id="arrow-out" markerWidth="8" markerHeight="8" refX="6.2" refY="4" orient="auto">
+                <path d="M0,0.6 L7,4 L0,7.4 Z" fill="#90a3bd"/>
+              </marker>
+              <marker id="arrow-true" markerWidth="8" markerHeight="8" refX="6.2" refY="4" orient="auto">
+                <path d="M0,0.6 L7,4 L0,7.4 Z" fill="#45b57f"/>
+              </marker>
+              <marker id="arrow-false" markerWidth="8" markerHeight="8" refX="6.2" refY="4" orient="auto">
+                <path d="M0,0.6 L7,4 L0,7.4 Z" fill="#e2664f"/>
+              </marker>
+              <marker id="arrow-sel" markerWidth="8" markerHeight="8" refX="6.2" refY="4" orient="auto">
+                <path d="M0,0.6 L7,4 L0,7.4 Z" fill="#5b9bf0"/>
+              </marker>
+            </defs>
+          </svg>
+          <div class="nodes" id="nodes"></div>
+          <div class="editor-layer" id="editorLayer"></div>
+        </div>
+      </div>
+      <div class="canvas-empty" id="emptyHint" hidden>
+        Arrastra un bloque <strong>Inicio</strong> desde la izquierda<br>
+        y ve uniendo bloques con los puntos naranjas.
+      </div>
+    </div>
+
+    <div class="overlay-layer" id="overlayLayer"></div>
+
+    <div class="statusbar">
+      <span class="status-chip" id="statusChip" data-status="idle">
+        <span class="dot"></span>
+        <span id="statusText">Detenido</span>
+      </span>
+      <span id="stepCount"></span>
+      <button class="problems-btn" id="problemsBtn" type="button" title="Ver la lista de problemas">Todo en orden</button>
+      <div class="spacer" style="flex:1 1 auto"></div>
+      <div class="zoom-box">
+        <button class="btn icon ghost" id="btnZoomOut" type="button" title="Alejar" aria-label="Alejar">
+          <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <span class="zoom-value" id="zoomValue">100%</span>
+        <button class="btn icon ghost" id="btnZoomIn" type="button" title="Acercar" aria-label="Acercar">
+          <svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+        <button class="btn ghost" id="btnZoomFit" type="button" title="Ver todo el diagrama">Ajustar</button>
+      </div>
+    </div>
+  </main>
+
+  <aside class="pypanel" id="pyPanel" hidden>
+    <div class="panel-head">
+      <h3>Python</h3>
+      <div class="spacer"></div>
+      <button class="mini-btn" id="btnPyCopy" type="button" title="Copiar todo el codigo">Copiar</button>
+      <button class="mini-btn" id="btnPyDownload" type="button" title="Descargar el archivo .py">.py</button>
+      <button class="mini-btn" id="btnPyClose" type="button" title="Cerrar el panel" aria-label="Cerrar el panel">×</button>
+    </div>
+    <div class="py-code" id="pyBody"></div>
+    <div class="py-notes" id="pyNotes" hidden></div>
+  </aside>
+
+  <aside class="side">
+    <div class="panel vars">
+      <div class="panel-head">
+        <h3>Variables</h3>
+        <div class="spacer"></div>
+      </div>
+      <div class="panel-body" id="varsBody"></div>
+    </div>
+    <div class="panel console">
+      <div class="panel-head">
+        <h3>Consola</h3>
+        <div class="spacer"></div>
+        <label class="mini-check" title="Mostrar cada asignación y cada decision">
+          <input type="checkbox" id="trace" checked> traza
+        </label>
+        <button class="mini-btn" id="btnClearConsole" type="button">Limpiar</button>
+      </div>
+      <div class="panel-body" id="consoleBody"></div>
+    </div>
+  </aside>
+</div>
+
+<input type="file" id="fileInput" accept=".json,application/json" class="sr-only" aria-hidden="true" tabindex="-1">
+
+<div class="modal" id="modalHelp" hidden>
+  <div class="modal-card">
+    <h2>Cómo se usa</h2>
+    <p>Arma el diagrama con los bloques de la izquierda, únelos con flechas y ejecútalo paso a paso para ver que hace.</p>
+
+    <h3>Armar el diagrama</h3>
+    <ul>
+      <li>Arrastra un bloque desde la paleta, o púlsalo para colocarlo en el centro.</li>
+      <li><strong>Doble clic</strong> en un bloque para escribir su contenido (Enter guarda, Escape cancela).</li>
+      <li>Arrastra desde un <strong>punto naranja</strong> hasta otro bloque para conectarlos. Cada salida admite una sola flecha.</li>
+      <li>Clic en una flecha para seleccionarla y borrarla con la × o con Suprimir.</li>
+    </ul>
+
+    <h3>Qué se escribe en cada bloque</h3>
+    <ul>
+      <li><strong>Entrada</strong>: nombres de variables, <code>n</code> o <code>a, b</code>.</li>
+      <li><strong>Proceso</strong>: asignaciones, <code>suma = a + b</code>. Varias con <code>;</code> o en líneas distintas.</li>
+      <li><strong>Salida</strong>: lo que quieras mostrar, <code>"Total: ", suma</code>.</li>
+      <li><strong>Decisión</strong>: una condición, <code>n mod 2 == 0</code>. Tiene dos salidas laterales: <strong>Sí</strong> a la izquierda y <strong>No</strong> a la derecha.</li>
+    </ul>
+
+    <h3>Operadores</h3>
+    <div class="modal-grid">
+      <div class="kbd-row"><span>Cuentas</span><span>+ - * / ^ mod div</span></div>
+      <div class="kbd-row"><span>Comparar</span><span>== != &lt; &lt;= &gt; &gt;=</span></div>
+      <div class="kbd-row"><span>Logica</span><span>y  o  no</span></div>
+      <div class="kbd-row"><span>Asignar</span><span>=  &lt;-  :=</span></div>
+      <div class="kbd-row"><span>Ojo</span><span>= da valor, == compara</span></div>
+      <div class="kbd-row"><span>Valores logicos</span><span>verdadero  falso</span></div>
+      <div class="kbd-row"><span>Textos</span><span>"entre comillas"</span></div>
+    </div>
+
+    <h3>Funciones</h3>
+    <p><code id="helpFunctions"></code></p>
+
+    <h3>Atajos de teclado</h3>
+    <div class="modal-grid">
+      <div class="kbd-row"><span>Ejecutar un paso</span><span>F9</span></div>
+      <div class="kbd-row"><span>Ejecutar / pausar</span><span>F8</span></div>
+      <div class="kbd-row"><span>Editar el bloque</span><span>Enter o F2</span></div>
+      <div class="kbd-row"><span>Borrar lo seleccionado</span><span>Supr</span></div>
+      <div class="kbd-row"><span>Deshacer / rehacer</span><span>Ctrl+Z / Ctrl+Y</span></div>
+      <div class="kbd-row"><span>Duplicar el bloque</span><span>Ctrl+D</span></div>
+      <div class="kbd-row"><span>Guardar archivo</span><span>Ctrl+S</span></div>
+      <div class="kbd-row"><span>Mover el bloque</span><span>Flechas</span></div>
+      <div class="kbd-row"><span>Mover sin rejilla</span><span>Alt + arrastrar</span></div>
+      <div class="kbd-row"><span>Acercar / alejar</span><span>Ctrl + rueda</span></div>
+    </div>
+
+    <h3>Consejos</h3>
+    <ul>
+      <li>Con <strong>Guardar</strong> el diagrama queda en este navegador, y lo vuelves a abrir desde <strong>Mis diagramas</strong>.</li>
+      <li>En <strong>Archivo</strong> puedes exportarlo a <strong>PNG</strong>, <strong>SVG</strong> o <strong>PDF</strong>, bajarlo como <code>.json</code> o copiar un enlace para compartirlo.</li>
+      <li>Puedes cambiar cualquier variable a mano en el panel de la derecha, incluso a mitad de la ejecución.</li>
+      <li>El botón <strong>☀</strong> de la barra cambia entre modo oscuro y modo claro; el que elijas se recuerda para la próxima vez.</li>
+      <li>El botón <strong>Python</strong> abre el mismo programa escrito en Python: se actualiza mientras editas y marca la línea del bloque en curso. Desde ahí puedes copiarlo o bajarlo como <code>.py</code>.</li>
+      <li>Si algo esta mal escrito, el bloque muestra un aviso rojo: pasa el ratón por encima para leerlo.</li>
+    </ul>
+
+    <div class="modal-close">
+      <button class="btn primary" type="button" data-close>Entendido</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/expr.js"></script>
+<script src="js/flow.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/examples.js"></script>
+<script src="js/store.js"></script>
+<script src="js/export.js"></script>
+<script src="js/pycode.js"></script>
+<script src="js/ui.js"></script>
+<script>
+  // pruebas de la interfaz: index.html?selftest=1
+  if (location.search.indexOf('selftest') >= 0) {
+    var s = document.createElement('script');
+    s.src = 'tests/ui-selftest.js';
+    document.body.appendChild(s);
+  }
+</script>
+</body>
+</html>

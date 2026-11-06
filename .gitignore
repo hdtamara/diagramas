@@ -1,0 +1,8 @@
+# Caché y temporales de wrangler (despliegue en Cloudflare)
+.wrangler/
+
+# Capturas generadas por tests/screenshot.js
+salida.png
+
+# Dependencias, por si algún día se instalan
+node_modules/
